@@ -142,7 +142,7 @@ MB.Editing = (function() {
 
         $.get("http://" + constants.MUSICBRAINZ_HOST + "/ws/2/" + entity_type + "/" + entity_gid, 
             function(data) {
-                var $xmlentity = $(data.documentElement).find('#'+entity_gid);
+                var $xmlentity = $(data).find('#'+entity_gid);
                 var entity = {
                     mbid: entity_gid,                    
                     name: $xmlentity.children("title, name").text(),
