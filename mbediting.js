@@ -173,7 +173,7 @@ MB.Editing = (function() {
                 var postAction = "/" + entity_type + "/" + entity.mbid + "/edit";
                 var postParameters = {};
                 $.each(entity_properties[entity_type], function(index, property) {
-                    appendParameter (postParameters, paramPrefix, property, property in update ? update[property] : entity[property]);
+                    appendParameter (postParameters, paramPrefix, property, property in update ? update[property] : entity[property], "");
                 });
                 appendParameter (postParameters, paramPrefix, "edit_note", editnote, "");
                 appendParameter (postParameters, paramPrefix, "as_auto_editor", autoedit ? 1 : 0, 0);
