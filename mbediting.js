@@ -228,6 +228,19 @@ MB.Editing = (function() {
         fnEditEntity('work', mbid, update, editnote, autoedit, successFallback, errorFallback);
     }
     
+    function approveEdit(edit_id, callback) {
+        var url = 'http://musicbrainz.org/edit/'+edit_id+'/approve'
+        var approve = function() {
+            $.get(url, function() {
+                callback(edit_id);
+            }).error(function() {
+                requestManager.unshift(approve);
+            });
+        }
+        requestManager.push(approve);
+        
+    }
+    
     // ------------------------------------- utils funtions -------------------------------------- //
     
     function appendParameter(parameters, paramNamePrefix, paramName, paramValue, paramDefaultValue) {
@@ -243,7 +256,8 @@ MB.Editing = (function() {
         createRelationship: fnCreateRelationship,
         createWork: fnCreateWork,
         editWork: fnEditWork,
-        lookup: fnLookupEntity
+        lookup: fnLookupEntity,
+        approveEdit: approveEdit
     };
 })();
 
