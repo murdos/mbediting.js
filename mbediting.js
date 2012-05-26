@@ -121,11 +121,32 @@ MB.Editing = (function() {
         var postParameters = {};
         appendParameter (postParameters, paramPrefix, "name", info.name);
         appendParameter (postParameters, paramPrefix, "comment", info.comment);
-        appendParameter (postParameters, paramPrefix, "iswc", info.iswc);
         appendParameter (postParameters, paramPrefix, "type_id", info.type, "");
         appendParameter (postParameters, paramPrefix, "edit_note", editnote, "");
         appendParameter (postParameters, paramPrefix, "as_auto_editor", autoedit ? 1 : 0);
         
+        var edit = function() {
+            $.ajax({
+              type: 'POST',
+              url: postAction,
+              data: postParameters,
+              success: successFallback,
+              error: errorFallback
+            });
+        }
+        requestManager.push(edit);
+    }
+
+    function fnAddISWC (work_mbid, iswc, editnote, autoedit, successFallback, errorFallback) {
+
+        var paramPrefix = 'add-iswc';
+
+        var postAction = "/work/"+ work_mbid +"/add-iswc";
+        var postParameters = {};
+        appendParameter (postParameters, paramPrefix, "iswc", iswc);
+        appendParameter (postParameters, paramPrefix, "edit_note", editnote, "");
+        appendParameter (postParameters, paramPrefix, "as_auto_editor", autoedit ? 1 : 0);
+
         var edit = function() {
             $.ajax({
               type: 'POST',
@@ -150,11 +171,14 @@ MB.Editing = (function() {
                 };
 
                 if (entity_type == 'work') {
-                    entity.iswc = $xmlentity.children('iswc').text();
                     entity.type = $xmlentity.attr('type');
                     if (MB.Referential.WORK_TYPES_IDS.hasOwnProperty(entity.type)) {
                         entity['type_id'] = MB.Referential.WORK_TYPES_IDS[ entity.type ];
                     }
+                    entity.iswc = [];
+                    $xmlentity.children('iswc-list').each(function() {
+                        entity.iswc.push($(this).text());
+                    });
                 }
 
                 callBack(entity);
@@ -219,7 +243,8 @@ MB.Editing = (function() {
         createRelationship: fnCreateRelationship,
         createWork: fnCreateWork,
         editWork: fnEditWork,
-        lookup: fnLookupEntity
+        lookup: fnLookupEntity,
+        addISWC: fnAddISWC
     };
 })();
 

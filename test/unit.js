@@ -35,10 +35,8 @@ module("Editing", {
 asyncTest("Creating a work", function() {
 
     var workInfo = {
-        name: 'testWork',
-        iswc: 'T-003.094.415-0',
+        name: 'testWork'
     };
-    console.log(workInfo);
 
     // Creating a new work
     
@@ -48,7 +46,6 @@ asyncTest("Creating a work", function() {
 
             MB.Editing.lookup('work', workMBID, function(work) {
                 equal(work.name, 'testWork');
-                equal(work.iswc, 'T-003.094.415-0');
                 start();
             });
 
@@ -82,3 +79,21 @@ asyncTest("Editing a work", function() {
 
 });
 
+asyncTest("Adding an ISWC code to an existing work", function() {
+
+    var iswc = 'T-003.094.415-0';
+
+    MB.Editing.addISWC('e7d968e0-35a3-3d81-bf6b-3f981a24fd3b', iswc, '', true,
+        function (data, textStatus, jqXHR) {
+
+            MB.Editing.lookup('work', workMBID, function(work) {
+                equal(work.name, 'À la belle de moi');
+                notEqual(work.iswc.length, 0);
+                equal(work.iswc[0], iswc);
+                start();
+            });
+
+        }
+    );
+
+});
