@@ -64,43 +64,43 @@ MB.Editing = (function() {
         MUSICBRAINZ_HOST: "musicbrainz.org",
         AJAX_REQUEST_RATE: 1000
     };
-    
+
     var utils = {
         MBID_REGEX: /[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/
     };
-       
+
     var requestManager = new RequestManager(constants.AJAX_REQUEST_RATE);
- 
+
     var entity_properties = {
         _common: [ 'name', 'comment' ],
         artist: [],
         work: [ 'iswc', 'type_id' ]
     }
- 
+
     // ---------------------------------- internal editing functions ------------------------------------ //
-    
+
     $.each(entity_properties, function(entity, properties) {
         if (entity == "_common") { return true; }
         jQuery.merge( entity_properties[entity], entity_properties['_common'] );
     });
-    
+
     function fnCreateRelationship (type0, type1, entity0, entity1, linkTypeId, attributes, editnote, autoedit, successFallback, errorFallback) {
-        
+
         var paramPrefix = 'ar';
-        
+
         if (!attributes) attributes = {};
-        
+
         var postAction = "/edit/relationship/create?type0=" + type0 + "&type1=" + type1
             + "&entity0="+entity0+"&entity1="+entity1;
         var postParameters = {};
         appendParameter (postParameters, paramPrefix, "link_type_id", linkTypeId);
         appendParameter (postParameters, paramPrefix, "edit_note", editnote, "");
         appendParameter (postParameters, paramPrefix, "as_auto_editor", autoedit ? 1 : 0);
-        
+
         $.each(Object.keys(attributes), function(index, attr) {
             appendParameter (postParameters, paramPrefix, "attrs."+attr, attributes[attr]);
         });
-        
+
         var edit = function() {
             $.ajax({
               type: 'POST',
@@ -112,11 +112,11 @@ MB.Editing = (function() {
         }
         requestManager.push(edit);
     }
-    
+
     function fnCreateWork (info, editnote, autoedit, successFallback, errorFallback) {
-        
+
         var paramPrefix = 'edit-work';
-        
+
         var postAction = "/work/create";
         var postParameters = {};
         appendParameter (postParameters, paramPrefix, "name", info.name);
@@ -124,7 +124,7 @@ MB.Editing = (function() {
         appendParameter (postParameters, paramPrefix, "type_id", info.type, "");
         appendParameter (postParameters, paramPrefix, "edit_note", editnote, "");
         appendParameter (postParameters, paramPrefix, "as_auto_editor", autoedit ? 1 : 0);
-        
+
         var edit = function() {
             $.ajax({
               type: 'POST',
@@ -167,11 +167,11 @@ MB.Editing = (function() {
         });
 
         var lookup = function() {
-            $.get(wsurl, 
+            $.get(wsurl,
                 function(data) {
                     var $xmlentity = $(data).find('#'+entity_gid);
                     var entity = {
-                        mbid: entity_gid,                    
+                        mbid: entity_gid,
                         name: $xmlentity.children("title, name").text(),
                         comment: $xmlentity.children("disambiguation").text()
                     };
@@ -186,7 +186,7 @@ MB.Editing = (function() {
                             entity.iswc.push($(this).text());
                         });
                     }
-                    
+
                     entity.relationships = {};
                     // Relationships
                     $xmlentity.children('relation-list').each(function() {
@@ -200,13 +200,13 @@ MB.Editing = (function() {
                             relation_type = $relation.attr('type');
                             if (!entity.relationships[target_type].hasOwnProperty(relation_type)) {
                                 entity.relationships[target_type][relation_type] = [];
-                            }                        
+                            }
                             $target_entity = $relation.children(target_type);
                             target = { id: $target_entity.attr('id'), name: $target_entity.children('name').text() };
                             entity.relationships[target_type][relation_type].push(target);
                         });
                     });
-                    
+
                     callBack(entity);
                 }
             ).error(function() {
@@ -219,7 +219,7 @@ MB.Editing = (function() {
     }
 
     function fnEditEntity (entity_type, entity_gid, update, editnote, autoedit, successFallback, errorFallback) {
-        
+
         fnLookupEntity(entity_type, entity_gid, [], function(entity) {
 
             var paramPrefix = 'edit-' + entity_type;
@@ -231,7 +231,7 @@ MB.Editing = (function() {
             });
             appendParameter (postParameters, paramPrefix, "edit_note", editnote, "");
             appendParameter (postParameters, paramPrefix, "as_auto_editor", autoedit ? 1 : 0, 0);
-            
+
             var edit = function() {
                 $.ajax({
                   type: 'POST',
@@ -245,13 +245,13 @@ MB.Editing = (function() {
             }
             requestManager.push(edit);
         });
-        
+
     }
-    
-    function fnEditWork (mbid, update, editnote, autoedit, successFallback, errorFallback) {       
+
+    function fnEditWork (mbid, update, editnote, autoedit, successFallback, errorFallback) {
         fnEditEntity('work', mbid, update, editnote, autoedit, successFallback, errorFallback);
     }
-    
+
     function approveEdit(edit_id, callback) {
         var url = 'http://musicbrainz.org/edit/'+edit_id+'/approve'
         var approve = function() {
@@ -262,17 +262,17 @@ MB.Editing = (function() {
             });
         }
         requestManager.push(approve);
-        
+
     }
-    
+
     // ------------------------------------- utils funtions -------------------------------------- //
-    
+
     function appendParameter(parameters, paramNamePrefix, paramName, paramValue, paramDefaultValue) {
         parameters[ paramNamePrefix + "." + paramName ] = (typeof paramValue === 'undefined') ? paramDefaultValue : paramValue ;
     }
-   
+
     // ---------------------------------- expose publics here ------------------------------------ //
-    
+
 	return {
         requestManager: requestManager,
         utils: utils,
@@ -295,7 +295,7 @@ MB.Editing.Utils = (function() {
         var newtext = text.replace(/[-[\]{}()*+?~:\\^!"]/g, "\\$&");
         return newtext.replace("&&", "\&&").replace("||", "\||");
     }
-    
+
     return {
         luceneEscape: luceneEscape
     }
@@ -316,7 +316,7 @@ MB.Referential = (function() {
             }
         }
     };
-    
+
     var WORK_TYPES = {
          1: "Aria",
          2: "Ballet",
@@ -341,11 +341,11 @@ MB.Referential = (function() {
     };
     var WORK_TYPES_IDS = {};
     $.each(WORK_TYPES, function(id, name) { WORK_TYPES_IDS[name] = id; });
-    
+
     return {
         RELATIONSHIPS: RELATIONSHIP_TYPE_IDS,
         WORK_TYPES_IDS: WORK_TYPES_IDS,
         WORK_TYPES: WORK_TYPES
     }
-    
+
 })();
