@@ -159,69 +159,92 @@ MB.Editing = (function() {
         requestManager.push(edit);
     }
 
-    function fnLookupEntity(entity_type, entity_gid, callBack) {
+    function fnLookupEntity(entity_type, entity_gid, incOptions, callBack) {
+        var wsurl = "http://" + constants.MUSICBRAINZ_HOST + "/ws/2/" + entity_type + "/" + entity_gid;
+        $.each(incOptions, function(i,option) {
+            wsurl += (i == 0) ? "?inc=" : "+";
+            wsurl += option;
+        });
 
-        $.get("http://" + constants.MUSICBRAINZ_HOST + "/ws/2/" + entity_type + "/" + entity_gid, 
-            function(data) {
-                var $xmlentity = $(data.documentElement).find('#'+entity_gid);
-                var entity = {
-                    mbid: entity_gid,                    
-                    name: $xmlentity.children("title, name").text(),
-                    comment: $xmlentity.children("disambiguation").text()
-                };
+        var lookup = function() {
+            $.get(wsurl, 
+                function(data) {
+                    var $xmlentity = $(data).find('#'+entity_gid);
+                    var entity = {
+                        mbid: entity_gid,                    
+                        name: $xmlentity.children("title, name").text(),
+                        comment: $xmlentity.children("disambiguation").text()
+                    };
 
-                if (entity_type == 'work') {
-                    entity.type = $xmlentity.attr('type');
-                    if (MB.Referential.WORK_TYPES_IDS.hasOwnProperty(entity.type)) {
-                        entity['type_id'] = MB.Referential.WORK_TYPES_IDS[ entity.type ];
+                    if (entity_type == 'work') {
+                        entity.type = $xmlentity.attr('type');
+                        if (MB.Referential.WORK_TYPES_IDS.hasOwnProperty(entity.type)) {
+                            entity['type_id'] = MB.Referential.WORK_TYPES_IDS[ entity.type ];
+                        }
+                        entity.iswc = [];
+                        $xmlentity.children('iswc-list').each(function() {
+                            entity.iswc.push($(this).text());
+                        });
                     }
-                    entity.iswc = [];
-                    $xmlentity.children('iswc-list').each(function() {
-                        entity.iswc.push($(this).text());
+                    
+                    entity.relationships = {};
+                    // Relationships
+                    $xmlentity.children('relation-list').each(function() {
+                        $relations = $(this);
+                        target_type = $relations.attr('target-type');
+                        if (!entity.relationships.hasOwnProperty(target_type)) {
+                            entity.relationships[target_type] = {};
+                        }
+                        $relations.children('relation').each(function() {
+                            $relation = $(this);
+                            relation_type = $relation.attr('type');
+                            if (!entity.relationships[target_type].hasOwnProperty(relation_type)) {
+                                entity.relationships[target_type][relation_type] = [];
+                            }                        
+                            $target_entity = $relation.children(target_type);
+                            target = { id: $target_entity.attr('id'), name: $target_entity.children('name').text() };
+                            entity.relationships[target_type][relation_type].push(target);
+                        });
                     });
+                    
+                    callBack(entity);
                 }
-
-                callBack(entity);
-            }
-        );
+            ).error(function() {
+                requestManager.unshift(function() {
+                    fnLookupEntity(entity_type, entity_gid, incOptions, callBack);
+                });
+            });
+        }
+        requestManager.push(lookup);
     }
 
     function fnEditEntity (entity_type, entity_gid, update, editnote, autoedit, successFallback, errorFallback) {
         
-        var lookup = function() {
+        fnLookupEntity(entity_type, entity_gid, [], function(entity) {
 
-            fnLookupEntity(entity_type, entity_gid, function(entity) {
+            var paramPrefix = 'edit-' + entity_type;
 
-                var paramPrefix = 'edit-' + entity_type;
-    
-                var postAction = "/" + entity_type + "/" + entity.mbid + "/edit";
-                var postParameters = {};
-                $.each(entity_properties[entity_type], function(index, property) {
-                    appendParameter (postParameters, paramPrefix, property, property in update ? update[property] : entity[property]);
-                });
-                appendParameter (postParameters, paramPrefix, "edit_note", editnote, "");
-                appendParameter (postParameters, paramPrefix, "as_auto_editor", autoedit ? 1 : 0, 0);
-                
-                var edit = function() {
-                    $.ajax({
-                      type: 'POST',
-                      url: postAction,
-                      data: postParameters,
-                      success: successFallback,
-                      error: errorFallback
-                    });
-                }
-                requestManager.push(edit);
+            var postAction = "/" + entity_type + "/" + entity.mbid + "/edit";
+            var postParameters = {};
+            $.each(entity_properties[entity_type], function(index, property) {
+                appendParameter (postParameters, paramPrefix, property, property in update ? update[property] : entity[property], "");
             });
-
-        };
-        /*
-        .error(function() {
-            requestManager.unshift(lookup);
+            appendParameter (postParameters, paramPrefix, "edit_note", editnote, "");
+            appendParameter (postParameters, paramPrefix, "as_auto_editor", autoedit ? 1 : 0, 0);
+            
+            var edit = function() {
+                $.ajax({
+                  type: 'POST',
+                  url: postAction,
+                  data: postParameters,
+                  success: successFallback,
+                  error: errorFallback
+                }).error(function() {
+                    requestManager.unshift(edit);
+                });
+            }
+            requestManager.push(edit);
         });
-        */
-
-        requestManager.push(lookup);
         
     }
     
@@ -229,28 +252,54 @@ MB.Editing = (function() {
         fnEditEntity('work', mbid, update, editnote, autoedit, successFallback, errorFallback);
     }
     
+    function approveEdit(edit_id, callback) {
+        var url = 'http://musicbrainz.org/edit/'+edit_id+'/approve'
+        var approve = function() {
+            $.get(url, function() {
+                callback(edit_id);
+            }).error(function() {
+                requestManager.unshift(approve);
+            });
+        }
+        requestManager.push(approve);
+        
+    }
+    
     // ------------------------------------- utils funtions -------------------------------------- //
     
     function appendParameter(parameters, paramNamePrefix, paramName, paramValue, paramDefaultValue) {
         parameters[ paramNamePrefix + "." + paramName ] = (typeof paramValue === 'undefined') ? paramDefaultValue : paramValue ;
     }
-        
+   
     // ---------------------------------- expose publics here ------------------------------------ //
     
 	return {
+        requestManager: requestManager,
         utils: utils,
         constants: constants,
         createRelationship: fnCreateRelationship,
         createWork: fnCreateWork,
         editWork: fnEditWork,
         lookup: fnLookupEntity,
-        addISWC: fnAddISWC
+        addISWC: fnAddISWC,
+        approveEdit: approveEdit
     };
 })();
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //                                          MusicBrainz Editing tools
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+MB.Editing.Utils = (function() {
+    function luceneEscape(text) {
+        var newtext = text.replace(/[-[\]{}()*+?~:\\^!"]/g, "\\$&");
+        return newtext.replace("&&", "\&&").replace("||", "\||");
+    }
+    
+    return {
+        luceneEscape: luceneEscape
+    }
+})();
 
 MB.Referential = (function() {
 
@@ -260,8 +309,13 @@ MB.Referential = (function() {
                 'composer': 168,
                 'lyricist': 165
             }
+        },
+        'label': {
+            'work': {
+                'publisher': 'XXX'
+            }
         }
-    }
+    };
     
     var WORK_TYPES = {
          1: "Aria",
@@ -284,7 +338,7 @@ MB.Referential = (function() {
          18: "Symphonic poem",
          19: "Zarzuela",
          20: "Étude"
-    }
+    };
     var WORK_TYPES_IDS = {};
     $.each(WORK_TYPES, function(id, name) { WORK_TYPES_IDS[name] = id; });
     
