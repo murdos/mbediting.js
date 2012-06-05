@@ -252,6 +252,30 @@ MB.Editing = (function() {
         fnEditEntity('work', mbid, update, editnote, autoedit, successFallback, errorFallback);
     }
 
+    function fnEditArtwork (release_gid, artwork_id, type_ids, comment, editnote, autoedit, successFallback, errorFallback) {
+
+        var paramPrefix = 'edit-cover-art';
+
+        var postAction = "/release/" + release_gid + "/edit-cover-art/" + artwork_id;
+        var postParameters = {};
+        appendParameter (postParameters, paramPrefix, 'type_id', type_ids, []);
+        appendParameter (postParameters, paramPrefix, 'comment', comment, "");
+        appendParameter (postParameters, paramPrefix, "edit_note", editnote, "");
+        appendParameter (postParameters, paramPrefix, "as_auto_editor", autoedit ? 1 : 0, 0);
+
+        var edit = function() {
+                $.ajax({
+                        type: 'POST',
+                        url: postAction,
+                        data: postParameters,
+                        success: successFallback,
+                        error: errorFallback
+                });
+        }
+        requestManager.push(edit);
+
+    }
+	
     function approveEdit(edit_id, callback) {
         var url = 'http://musicbrainz.org/edit/'+edit_id+'/approve'
         var approve = function() {
@@ -282,7 +306,8 @@ MB.Editing = (function() {
         editWork: fnEditWork,
         lookup: fnLookupEntity,
         addISWC: fnAddISWC,
-        approveEdit: approveEdit
+        approveEdit: approveEdit,
+        editArtwork: fnEditArtwork
     };
 })();
 
