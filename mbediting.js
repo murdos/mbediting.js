@@ -6,6 +6,7 @@
 */
 
 var MB = MB || {};
+if (!$.error) $.error = function() {};
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //                                          MusicBrainz Editing helper functions
@@ -62,6 +63,7 @@ MB.Editing = (function() {
 
     var constants = {
         MUSICBRAINZ_HOST: "musicbrainz.org",
+        MUSICBRAINZ_SEARCH_HOST: "beta.musicbrainz.org",
         AJAX_REQUEST_RATE: 1000
     };
 
@@ -72,9 +74,9 @@ MB.Editing = (function() {
     var requestManager = new RequestManager(constants.AJAX_REQUEST_RATE);
 
     var entity_properties = {
-        _common: [ 'name', 'comment' ],
+        _common: [ 'title', 'disambiguation' ],
         artist: [],
-        work: [ 'iswc', 'type_id' ]
+        work: [ 'type_id', 'language_id', 'iswcs[]' ]
     }
 
     // ---------------------------------- internal editing functions ------------------------------------ //
@@ -137,26 +139,22 @@ MB.Editing = (function() {
         requestManager.push(edit);
     }
 
+    // Helper function, the real edit is done by fnEditEntity
     function fnAddISWC (work_mbid, iswc, editnote, autoedit, successFallback, errorFallback) {
-
-        var paramPrefix = 'add-iswc';
-
-        var postAction = "/work/"+ work_mbid +"/add-iswc";
-        var postParameters = {};
-        appendParameter (postParameters, paramPrefix, "iswc", iswc);
-        appendParameter (postParameters, paramPrefix, "edit_note", editnote, "");
-        appendParameter (postParameters, paramPrefix, "as_auto_editor", autoedit ? 1 : 0);
-
-        var edit = function() {
-            $.ajax({
-              type: 'POST',
-              url: postAction,
-              data: postParameters,
-              success: successFallback,
-              error: errorFallback
-            });
-        }
-        requestManager.push(edit);
+        fnLookupEntity('work', work_mbid, [], function(work) {
+            // Check that the ISWC we want to add is not already attached to this work
+            for (var i=0; i<work.iswcs.length; i++) {
+                if (work.iswcs[i] == iswc) {
+                    // Aborting, the edit would be pointless
+                    return;
+                }
+            }
+            work.iswcs.push(iswc);
+            var update = {
+                'iswcs': work.iswcs
+            };
+            fnEditEntity('work', work_mbid, update, editnote, autoedit, successFallback, errorFallback);
+        });
     }
 
     function fnLookupEntity(entity_type, entity_gid, incOptions, callBack) {
@@ -167,46 +165,17 @@ MB.Editing = (function() {
         });
 
         var lookup = function() {
-            $.get(wsurl,
-                function(data) {
-                    var $xmlentity = $(data).find('#'+entity_gid);
-                    var entity = {
-                        mbid: entity_gid,
-                        name: $xmlentity.children("title, name").text(),
-                        comment: $xmlentity.children("disambiguation").text()
-                    };
-
+            $.getJSON(wsurl,
+                function(entity) {
+                    // For each entity type, add id for some properties
                     if (entity_type == 'work') {
-                        entity.type = $xmlentity.attr('type');
                         if (MB.Referential.WORK_TYPES_IDS.hasOwnProperty(entity.type)) {
                             entity['type_id'] = MB.Referential.WORK_TYPES_IDS[ entity.type ];
                         }
-                        entity.iswc = [];
-                        $xmlentity.children('iswc-list').each(function() {
-                            entity.iswc.push($(this).text());
-                        });
-                    }
-
-                    entity.relationships = {};
-                    // Relationships
-                    $xmlentity.children('relation-list').each(function() {
-                        $relations = $(this);
-                        target_type = $relations.attr('target-type');
-                        if (!entity.relationships.hasOwnProperty(target_type)) {
-                            entity.relationships[target_type] = {};
+                        if (MB.Referential.LANGUAGES_ISO_CODE_TO_IDS.hasOwnProperty(entity.language)) {
+                            entity['language_id'] = MB.Referential.LANGUAGES_ISO_CODE_TO_IDS[ entity.language ];
                         }
-                        $relations.children('relation').each(function() {
-                            $relation = $(this);
-                            relation_type = $relation.attr('type');
-                            if (!entity.relationships[target_type].hasOwnProperty(relation_type)) {
-                                entity.relationships[target_type][relation_type] = [];
-                            }
-                            $target_entity = $relation.children(target_type);
-                            target = { id: $target_entity.attr('id'), name: $target_entity.children('name').text() };
-                            entity.relationships[target_type][relation_type].push(target);
-                        });
-                    });
-
+                    }
                     callBack(entity);
                 }
             ).error(function() {
@@ -218,16 +187,39 @@ MB.Editing = (function() {
         requestManager.push(lookup);
     }
 
+    function fnSearchEntity(entity_type, searchString, callBack) {
+        var luceneQuery = MB.Editing.Utils.luceneEscape(searchString);
+        var searchURL = "http://" + constants.MUSICBRAINZ_SEARCH_HOST + "/ws/2/" + entity_type + "/?fmt=json&query=" + encodeURIComponent(luceneQuery);
+        search = function() {
+            $.getJSON(searchURL, function(data) {
+                callBack(data);
+            });
+        };
+        requestManager.push(search);
+    }
+
     function fnEditEntity (entity_type, entity_gid, update, editnote, autoedit, successFallback, errorFallback) {
 
         fnLookupEntity(entity_type, entity_gid, [], function(entity) {
 
             var paramPrefix = 'edit-' + entity_type;
 
-            var postAction = "/" + entity_type + "/" + entity.mbid + "/edit";
+            var postAction = 'http://' + constants.MUSICBRAINZ_HOST + "/" + entity_type + "/" + entity_gid + "/edit";
             var postParameters = {};
             $.each(entity_properties[entity_type], function(index, property) {
-                appendParameter (postParameters, paramPrefix, property, property in update ? update[property] : entity[property], "");
+                // Multi-values properties (e.g. IPI or ISWC)
+                if (property.indexOf("[]",  property.length - "[]".length) !== -1) {
+                    property = property.substring(0, property.length - "[]".length);
+                    var values = property in update ? update[property] : entity[property];
+                    $.each(values, function(idx, value) {
+                        appendParameter (postParameters, paramPrefix, property+"."+idx, value, "");
+                    });
+                } else {
+                    formProperty = property;
+                    if (property == 'title') formProperty = 'name';
+                    if (property == 'disambiguation') formProperty = 'comment';
+                    appendParameter (postParameters, paramPrefix, formProperty, property in update ? update[property] : entity[property], "");
+                }
             });
             appendParameter (postParameters, paramPrefix, "edit_note", editnote, "");
             appendParameter (postParameters, paramPrefix, "as_auto_editor", autoedit ? 1 : 0, 0);
@@ -256,7 +248,7 @@ MB.Editing = (function() {
 
         var paramPrefix = 'edit-cover-art';
 
-        var postAction = "/release/" + release_gid + "/edit-cover-art/" + artwork_id;
+        var postAction = 'http://' + constants.MUSICBRAINZ_HOST + "/release/" + release_gid + "/edit-cover-art/" + artwork_id;
         var postParameters = {};
         appendParameter (postParameters, paramPrefix, 'type_id', type_ids, []);
         appendParameter (postParameters, paramPrefix, 'comment', comment, "");
@@ -277,7 +269,7 @@ MB.Editing = (function() {
     }
 	
     function approveEdit(edit_id, callback) {
-        var url = 'http://musicbrainz.org/edit/'+edit_id+'/approve'
+        var url = 'http://' + constants.MUSICBRAINZ_HOST + '/edit/'+edit_id+'/approve'
         var approve = function() {
             $.get(url, function() {
                 callback(edit_id);
@@ -305,6 +297,7 @@ MB.Editing = (function() {
         createWork: fnCreateWork,
         editWork: fnEditWork,
         lookup: fnLookupEntity,
+        search: fnSearchEntity,
         addISWC: fnAddISWC,
         approveEdit: approveEdit,
         editArtwork: fnEditArtwork
@@ -325,6 +318,10 @@ MB.Editing.Utils = (function() {
         luceneEscape: luceneEscape
     }
 })();
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//                                          MusicBrainz Referential
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 MB.Referential = (function() {
 
@@ -367,7 +364,35 @@ MB.Referential = (function() {
     var WORK_TYPES_IDS = {};
     $.each(WORK_TYPES, function(id, name) { WORK_TYPES_IDS[name] = id; });
 
+    // select id ||': {"name": "'|| name ||'", "iso_code": "'|| iso_code_2t || '"},' from language where frequency = 2 order by id;
+    var LANGUAGES = {
+        18: {"name": "Arabic", "iso_code": "ara"},
+        76: {"name": "Chinese", "iso_code": "zho"},
+        98: {"name": "Czech", "iso_code": "ces"},
+        100: {"name": "Danish", "iso_code": "dan"},
+        113: {"name": "Dutch", "iso_code": "nld"},
+        120: {"name": "English", "iso_code": "eng"},
+        131: {"name": "Finnish", "iso_code": "fin"},
+        134: {"name": "French", "iso_code": "fra"},
+        145: {"name": "German", "iso_code": "deu"},
+        159: {"name": "Greek", "iso_code": "ell"},
+        195: {"name": "Italian", "iso_code": "ita"},
+        198: {"name": "Japanese", "iso_code": "jpn"},
+        284: {"name": "[Multiple languages]", "iso_code": "mul"},
+        309: {"name": "Norwegian", "iso_code": "nor"},
+        338: {"name": "Polish", "iso_code": "pol"},
+        340: {"name": "Portuguese", "iso_code": "por"},
+        353: {"name": "Russian", "iso_code": "rus"},
+        393: {"name": "Spanish", "iso_code": "spa"},
+        403: {"name": "Swedish", "iso_code": "swe"},
+        433: {"name": "Turkish", "iso_code": "tur"}
+    };
+    var LANGUAGES_ISO_CODE_TO_IDS = {};
+    $.each(LANGUAGES, function(id, lang) { LANGUAGES_ISO_CODE_TO_IDS[lang.iso_code] = id; });
+
     return {
+        LANGUAGES_ISO_CODE_TO_IDS: LANGUAGES_ISO_CODE_TO_IDS,
+        LANGUAGES: LANGUAGES,
         RELATIONSHIPS: RELATIONSHIP_TYPE_IDS,
         WORK_TYPES_IDS: WORK_TYPES_IDS,
         WORK_TYPES: WORK_TYPES
